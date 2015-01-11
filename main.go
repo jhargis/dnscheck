@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"log"
@@ -23,31 +24,49 @@ var (
 	done         = make(chan bool)
 	workersLimit = 1
 	connection   string
+	domainArg    string
 )
 
 func main() {
-	if len(os.Args) != 4 {
-		fmt.Println("Usage:", os.Args[0], "path/to/domains path/to/rails/config/database.yml path/to/GeoLite2-City.mmdb")
-		os.Exit(1)
-	}
 
-	dnsClient.ReadTimeout = timeout
+	databaseArg := flag.String("database", "database.yml", "Path to file containing the database configuration")
+	country := flag.String("country", "all", "country to export")
+	flag.StringVar(&domainArg, "domains", "domains.txt", "Path to file containing the domain list")
+	flag.StringVar(&geoDbPath, "geodb", "GeoLite2-City.mmdb", "Path to GeoDB database")
+	flag.Parse()
+	tail := flag.Args()
 
+	// set the environment
 	environment := os.Getenv("RAILS_ENV")
 	if environment == "" {
 		environment = "development"
 	}
 
-	if err := readDomains(os.Args[1]); err != nil {
+	// load database configuration
+	connection = databasePath(*databaseArg, environment)
+
+	if len(tail) == 0 {
+		fmt.Println("No command given")
+		os.Exit(1)
+	}
+
+	if tail[0] == "check" {
+		mainCheck()
+	} else if tail[0] == "csv" {
+		exportCsv(*country)
+	} else {
+		fmt.Println("Unknown command: ", tail[0])
+		os.Exit(1)
+	}
+}
+
+func mainCheck() {
+	dnsClient.ReadTimeout = timeout
+
+	if err := readDomains(domainArg); err != nil {
 		fmt.Println("unable to read domain list")
 		panic(err)
 	}
-
-	// load database configuration
-	connection = databasePath(os.Args[2], environment)
-
-	// load path to GeoDB
-	geoDbPath = os.Args[3]
 
 	// Use all cores
 	cpus := runtime.NumCPU()
